@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Character Mosaic — Image made of characters</title>
+<style>
+  :root {
+    --bg: #111;
+    --panel: #1a1a1a;
+    --text: #eee;
+    --accent: #ff3366;
+    --border: #333;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+  header {
+    padding: 1.5rem 2rem;
+    border-bottom: 1px solid var(--border);
+  }
+  h1 { margin: 0; font-size: 1.4rem; font-weight: 600; }
+  .subtitle { color: #888; font-size: 0.9rem; margin-top: 0.25rem; }
+  .app {
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    min-height: calc(100vh - 80px);
+  }
+  .controls {
+    background: var(--panel);
+    padding: 1.5rem;
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+  }
+  .controls h2 {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #888;
+    margin: 1.25rem 0 0.5rem;
+  }
+  label {
+    display: block;
+    font-size: 0.85rem;
+    margin-bottom: 0.25rem;
+  }
+  input[type="text"], input[type="number"], input[type="color"], select {
+    width: 100%;
+    padding: 0.5rem;
+    background: #222;
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 4px;
+    margin-bottom: 0.75rem;
+  }
+  input[type="range"] {
+    width: 100%;
+    margin-bottom: 0.75rem;
+  }
+  .row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+  }
+  .row input { flex: 1; }
+  button {
+    background: var(--accent);
+    color: white;
+    border: none;
+    padding: 0.7rem 1rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 600;
+    width: 100%;
+    margin-top: 0.5rem;
+  }
+  button:hover { filter: brightness(1.1); }
+  button.secondary {
+    background: #333;
+  }
+  .preview-area {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+    gap: 1rem;
+    position: relative;
+  }
+  canvas {
+    max-width: 100%;
+    max-height: 80vh;
+    background: #000;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.4);
+  }
+  .dropzone {
+    border: 2px dashed #444;
+    border-radius: 8px;
+    padding: 3rem 2rem;
+    text-align: center;
+    color: #888;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .dropzone:hover, .dropzone.dragover {
+    border-color: var(--accent);
+    color: var(--text);
+  }
+  .status {
+    font-size: 0.8rem;
+    color: #888;
+    margin-top: 0.5rem;
+  }
+  .value { color: #aaa; font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Character Mosaic</h1>
+  <div class="subtitle">Upload an image → reconstruct it with repeated characters (Scriptographer-style)</div>
+</header>
+
+<div class="app">
+  <aside class="controls">
+    <h2>Source</h2>
+    <div class="dropzone" id="dropzone">
+      Drop image here or click to upload
+      <input type="file" id="fileInput" accept="image/*" hidden>
+    </div>
+    <div class="status" id="status">No image loaded</div>
+
+    <h2>Character</h2>
+    <label>Character / Glyph</label>
+    <input type="text" id="char" value="8" maxlength="2">
+
+    <label>Font</label>
+    <select id="font">
+      <option value="Georgia, serif">Georgia (serif)</option>
+      <option value="'Courier New', monospace">Courier (mono)</option>
+      <option value="Impact, sans-serif">Impact</option>
+      <option value="'Arial Black', sans-serif">Arial Black</option>
+      <option value="system-ui, sans-serif">System UI</option>
+    </select>
+
+    <h2>Density & Size</h2>
+    <label>Grid resolution <span class="value" id="resVal">60</span></label>
+    <input type="range" id="resolution" min="20" max="150" value="60">
+
+    <label>Min size <span class="value" id="minVal">4</span></label>
+    <input type="range" id="minSize" min="1" max="20" value="4">
+
+    <label>Max size <span class="value" id="maxVal">28</span></label>
+    <input type="range" id="maxSize" min="8" max="80" value="28">
+
+    <h2>Color</h2>
+    <label>Character color</label>
+    <input type="color" id="charColor" value="#000000">
+
+    <label>Background</label>
+    <input type="color" id="bgColor" value="#ff69b4">
+
+    <div class="row">
+      <input type="checkbox" id="invert" style="width:auto">
+      <label for="invert" style="margin:0">Invert tones</label>
+    </div>
+
+    <button id="generate">Generate Mosaic</button>
+    <button class="secondary" id="reset" disabled>Reset to Suggested</button>
+    <button class="secondary" id="downloadPng" disabled>Download PNG</button>
+    <button class="secondary" id="downloadSvg" disabled>Download SVG</button>
+  </aside>
+
+  <main class="preview-area">
+    <canvas id="canvas" width="800" height="800"></canvas>
+  </main>
+</div>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('fileInput');
+const statusEl = document.getElementById('status');
+const generateBtn = document.getElementById('generate');
+const resetBtn = document.getElementById('reset');
+const downloadPngBtn = document.getElementById('downloadPng');
+const downloadSvgBtn = document.getElementById('downloadSvg');
+
+let sourceImage = null;
+let sourceCanvas = document.createElement('canvas');
+let sourceCtx = sourceCanvas.getContext('2d');
+
+// Controls
+const charInput = document.getElementById('char');
+const fontSelect = document.getElementById('font');
+const resolution = document.getElementById('resolution');
+const minSize = document.getElementById('minSize');
+const maxSize = document.getElementById('maxSize');
+const charColor = document.getElementById('charColor');
+const bgColor = document.getElementById('bgColor');
+const invert = document.getElementById('invert');
+
+function updateLabels() {
+  document.getElementById('resVal').textContent = resolution.value;
+  document.getElementById('minVal').textContent = minSize.value;
+  document.getElementById('maxVal').textContent = maxSize.value;
+}
+[resolution, minSize, maxSize].forEach(el => el.addEventListener('input', updateLabels));
+updateLabels();
+
+function getSuggestedSettings() {
+  if (!sourceImage) return null;
+
+  const w = sourceImage.width;
+  const h = sourceImage.height;
+  const shorter = Math.min(w, h);
+  const longer = Math.max(w, h);
+
+  // Resolution: aim for ~50–100 columns depending on image size
+  // Larger images get higher resolution, but cap it so output stays usable
+  let res = Math.round(shorter / 12);
+  res = Math.max(40, Math.min(120, res));
+
+  // Sizes scaled so the max character roughly fills a cell without overcrowding
+  const maxS = Math.round(Math.min(36, 22 + (res / 80) * 10));
+  const minS = Math.max(2, Math.round(maxS * 0.18));
+
+  return {
+    resolution: res,
+    minSize: minS,
+    maxSize: maxS,
+    character: '8',
+    font: 'Georgia, serif',
+    charColor: '#000000',
+    bgColor: '#ff69b4',
+    invert: false
+  };
+}
+
+function applySuggested() {
+  const s = getSuggestedSettings();
+  if (!s) return;
+
+  resolution.value = s.resolution;
+  minSize.value = s.minSize;
+  maxSize.value = s.maxSize;
+  charInput.value = s.character;
+  fontSelect.value = s.font;
+  charColor.value = s.charColor;
+  bgColor.value = s.bgColor;
+  invert.checked = s.invert;
+
+  updateLabels();
+  generate();
+  statusEl.textContent = `Reset to suggested settings for this image`;
+}
+
+resetBtn.addEventListener('click', applySuggested);
+
+// File handling
+function loadImage(file) {
+  if (!file || !file.type.startsWith('image/')) return;
+  const img = new Image();
+  img.onload = () => {
+    sourceImage = img;
+    statusEl.textContent = `${file.name} (${img.width}×${img.height})`;
+    generateBtn.disabled = false;
+    resetBtn.disabled = false;
+    // Auto-apply suggested settings on first load
+    applySuggested();
+  };
+  img.src = URL.createObjectURL(file);
+}
+
+dropzone.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', e => loadImage(e.target.files[0]));
+
+dropzone.addEventListener('dragover', e => {
+  e.preventDefault();
+  dropzone.classList.add('dragover');
+});
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+dropzone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropzone.classList.remove('dragover');
+  loadImage(e.dataTransfer.files[0]);
+});
+
+function generate() {
+  if (!sourceImage) return;
+
+  const cols = parseInt(resolution.value);
+  const minS = parseFloat(minSize.value);
+  const maxS = parseFloat(maxSize.value);
+  const character = charInput.value || '8';
+  const font = fontSelect.value;
+  const invertTones = invert.checked;
+
+  // Prepare source sampling canvas
+  const aspect = sourceImage.height / sourceImage.width;
+  const sampleW = cols;
+  const sampleH = Math.round(cols * aspect);
+  sourceCanvas.width = sampleW;
+  sourceCanvas.height = sampleH;
+  sourceCtx.drawImage(sourceImage, 0, 0, sampleW, sampleH);
+  const imageData = sourceCtx.getImageData(0, 0, sampleW, sampleH).data;
+
+  // Output canvas size — scale up so characters have room
+  const cell = Math.max(maxS * 1.1, 12);
+  canvas.width = sampleW * cell;
+  canvas.height = sampleH * cell;
+
+  // Background
+  ctx.fillStyle = bgColor.value;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  ctx.fillStyle = charColor.value;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  for (let y = 0; y < sampleH; y++) {
+    for (let x = 0; x < sampleW; x++) {
+      const i = (y * sampleW + x) * 4;
+      const r = imageData[i];
+      const g = imageData[i+1];
+      const b = imageData[i+2];
+      // Luminance
+      let lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+      if (invertTones) lum = 1 - lum;
+
+      // Map luminance to size (darker = larger by default, like classic "8" mosaics)
+      const size = minS + (1 - lum) * (maxS - minS);
+
+      if (size < 1.5) continue; // skip nearly invisible
+
+      const px = x * cell + cell / 2;
+      const py = y * cell + cell / 2;
+
+      ctx.font = `bold ${size}px ${font}`;
+      ctx.fillText(character, px, py);
+    }
+  }
+
+  downloadPngBtn.disabled = false;
+  downloadSvgBtn.disabled = false;
+  statusEl.textContent = `Generated ${sampleW}×${sampleH} grid`;
+}
+
+generateBtn.addEventListener('click', generate);
+
+// Live-ish updates on control changes when image is loaded
+[charInput, fontSelect, resolution, minSize, maxSize, charColor, bgColor, invert].forEach(el => {
+  el.addEventListener('input', () => {
+    if (sourceImage) generate();
+  });
+  el.addEventListener('change', () => {
+    if (sourceImage) generate();
+  });
+});
+
+function downloadFile(filename, href) {
+  const link = document.createElement('a');
+  link.setAttribute('download', filename);
+  link.href = href;
+  link.style.display = 'none';
+  document.body.appendChild(link);
+  // Force a user-gesture-friendly click
+  const event = new MouseEvent('click', {
+    view: window,
+    bubbles: true,
+    cancelable: true
+  });
+  link.dispatchEvent(event);
+  setTimeout(() => {
+    if (link.parentNode) link.parentNode.removeChild(link);
+    if (href.startsWith('blob:')) {
+      URL.revokeObjectURL(href);
+    }
+  }, 250);
+}
+
+downloadPngBtn.addEventListener('click', () => {
+  try {
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        statusEl.textContent = 'PNG export failed';
+        return;
+      }
+      const url = URL.createObjectURL(blob);
+      downloadFile('character-mosaic.png', url);
+      statusEl.textContent = 'PNG download started';
+    }, 'image/png');
+  } catch (e) {
+    statusEl.textContent = 'PNG download blocked';
+    console.error(e);
+  }
+});
+
+downloadSvgBtn.addEventListener('click', () => {
+  if (!sourceImage) {
+    statusEl.textContent = 'No image loaded';
+    return;
+  }
+
+  try {
+    const cols = parseInt(resolution.value);
+    const minS = parseFloat(minSize.value);
+    const maxS = parseFloat(maxSize.value);
+    const character = charInput.value || '8';
+    const font = fontSelect.value;
+    const invertTones = invert.checked;
+    const bg = bgColor.value;
+    const fg = charColor.value;
+
+    const aspect = sourceImage.height / sourceImage.width;
+    const sampleW = cols;
+    const sampleH = Math.round(cols * aspect);
+
+    sourceCanvas.width = sampleW;
+    sourceCanvas.height = sampleH;
+    sourceCtx.drawImage(sourceImage, 0, 0, sampleW, sampleH);
+    const imageData = sourceCtx.getImageData(0, 0, sampleW, sampleH).data;
+
+    const cell = Math.max(maxS * 1.1, 12);
+    const width = sampleW * cell;
+    const height = sampleH * cell;
+
+    // Proper escaping
+    const safeChar = character
+      .replace(/&/g, '&')
+      .replace(/</g, '<')
+      .replace(/>/g, '>')
+      .replace(/"/g, '"');
+
+    const fontFamily = font.split(',')[0].replace(/['"]/g, '').trim() || 'sans-serif';
+
+    let texts = '';
+    for (let y = 0; y < sampleH; y++) {
+      for (let x = 0; x < sampleW; x++) {
+        const i = (y * sampleW + x) * 4;
+        const r = imageData[i];
+        const g = imageData[i + 1];
+        const b = imageData[i + 2];
+        let lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+        if (invertTones) lum = 1 - lum;
+
+        const size = minS + (1 - lum) * (maxS - minS);
+        if (size < 1.5) continue;
+
+        const px = (x * cell + cell / 2).toFixed(1);
+        const py = (y * cell + cell / 2).toFixed(1);
+
+        texts += `<text x="${px}" y="${py}" font-size="${size.toFixed(1)}" font-family="${fontFamily}" font-weight="bold" text-anchor="middle" dominant-baseline="middle" fill="${fg}">${safeChar}</text>`;
+      }
+    }
+
+    const svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+<rect width="100%" height="100%" fill="${bg}"/>
+${texts}
+</svg>`;
+
+    // Use data URL with application/octet-stream to force download in Chrome
+    const dataUrl = 'data:application/octet-stream;charset=utf-8,' + encodeURIComponent(svg);
+    downloadFile('character-mosaic.svg', dataUrl);
+    statusEl.textContent = 'SVG download started';
+  } catch (err) {
+    statusEl.textContent = 'SVG failed: ' + err.message;
+    console.error(err);
+  }
+});
+
+// Initial placeholder
+ctx.fillStyle = '#222';
+ctx.fillRect(0, 0, canvas.width, canvas.height);
+ctx.fillStyle = '#555';
+ctx.font = '20px system-ui';
+ctx.textAlign = 'center';
+ctx.fillText('Upload an image to begin', canvas.width/2, canvas.height/2);
+</script>
+
+</body>
+</html>
